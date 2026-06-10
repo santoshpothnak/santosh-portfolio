@@ -226,7 +226,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx = canvas.getContext('2d');
     let particles = [];
     let animationFrameId;
-    
     // Mouse interaction coordinates
     let mouse = {
       x: null,
@@ -252,13 +251,27 @@ document.addEventListener('DOMContentLoaded', () => {
       return isMobile ? 35 : 85;
     }
 
-    // Set canvas dimensions
+    let lastWidth = 0;
+    
+    // Set canvas dimensions with high-DPI scaling support
     function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      ctx.scale(dpr, dpr);
       
-      // Re-init particles on resize to fit the new boundaries
-      initParticles();
+      // Re-init particles ONLY if the width changed (e.g. orientation changes)
+      // Height updates on mobile from URL bar collapse shouldn't reset the animation
+      if (window.innerWidth !== lastWidth) {
+        lastWidth = window.innerWidth;
+        initParticles();
+      } else {
+        // Keep particles within bounding box if height shrunk slightly
+        particles.forEach(p => {
+          if (p.x > window.innerWidth) p.x = Math.random() * window.innerWidth;
+          if (p.y > window.innerHeight) p.y = Math.random() * window.innerHeight;
+        });
+      }
     }
 
     // Debounced resize handler for performance
@@ -271,30 +284,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // Particle Class definition
     class Particle {
       constructor() {
-        this.x = Math.random() * canvas.width;
-        this.y = Math.random() * canvas.height;
+        this.x = Math.random() * window.innerWidth;
+        this.y = Math.random() * window.innerHeight;
         
-        // Faint color options matching Gemini (cyan / violet / blue)
+        // Faint color options matching Gemini (cyan / violet / blue) - stored as rgb components
         const colors = [
-          'rgba(139, 246, 255, 0.45)', // Cyan
-          'rgba(197, 163, 255, 0.4)',  // Violet
-          'rgba(138, 180, 248, 0.4)'   // Blue
+          '139, 246, 255', // Cyan
+          '197, 163, 255', // Violet
+          '138, 180, 248'  // Blue
         ];
-        this.color = colors[Math.floor(Math.random() * colors.length)];
+        this.baseColor = colors[Math.floor(Math.random() * colors.length)];
         
         // Random size (small, subtle dots)
         this.size = Math.random() * 1.5 + 0.8;
         
         // Random velocity (slow floating movement)
-        const speedMultiplier = window.innerWidth < 768 ? 0.3 : 0.45;
+        const isMobile = window.innerWidth < 768;
+        const speedMultiplier = isMobile ? 0.35 : 0.45;
         this.vx = (Math.random() - 0.5) * speedMultiplier;
         this.vy = (Math.random() - 0.5) * speedMultiplier;
       }
 
       update() {
         // Handle screen edges bounce
-        if (this.x < 0 || this.x > canvas.width) this.vx = -this.vx;
-        if (this.y < 0 || this.y > canvas.height) this.vy = -this.vy;
+        if (this.x < 0 || this.x > window.innerWidth) this.vx = -this.vx;
+        if (this.y < 0 || this.y > window.innerHeight) this.vy = -this.vy;
 
         // Move particle
         this.x += this.vx;
@@ -302,9 +316,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       draw() {
+        const isMobile = window.innerWidth < 768;
+        // Higher base opacity on mobile to ensure visibility
+        const opacity = isMobile ? 0.7 : 0.45;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
+        ctx.fillStyle = `rgba(${this.baseColor}, ${opacity})`;
         ctx.fill();
       }
     }
@@ -321,6 +338,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Connect particles with faint lines
     function drawConnections() {
       const maxDistance = 115; // Max distance to draw connection line
+      const isMobile = window.innerWidth < 768;
+      // Increase line opacity multiplier on mobile to compensate for scaling
+      const baseLineOpacity = isMobile ? 0.28 : 0.12;
       
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
@@ -333,14 +353,13 @@ document.addEventListener('DOMContentLoaded', () => {
           
           if (dist < maxDistance) {
             // Opacity decreases as distance increases
-            const opacity = (1 - dist / maxDistance) * 0.12;
+            const opacity = (1 - dist / maxDistance) * baseLineOpacity;
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
             
-            // Faint gradient look by drawing lines based on p1 color
-            ctx.strokeStyle = p1.color.replace('0.45', opacity).replace('0.4', opacity);
-            ctx.lineWidth = 0.6;
+            ctx.strokeStyle = `rgba(${p1.baseColor}, ${opacity})`;
+            ctx.lineWidth = isMobile ? 0.8 : 0.6;
             ctx.stroke();
           }
         }
@@ -366,7 +385,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Main Loop
     function animate() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Clear the logical viewport size
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       
       // Update & Draw particles
       particles.forEach(p => {
